@@ -101,6 +101,21 @@ small{color:#555}
     max-width: 100%;
   }
 }
+/* Botón ancho para el control de rutas */
+.leaflet-control-routes.leaflet-bar a{
+  width: auto;            /* override del width fijo de Leaflet */
+  min-width: 160px;       /* ← ajusta el ancho mínimo a tu gusto */
+  height: 36px;
+  line-height: 36px;
+  padding: 0 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: center;
+}
+.leaflet-control-routes.leaflet-bar{
+  border-radius: 8px;
+  overflow: hidden;
+}
 </style>
 </head>
 
@@ -246,7 +261,6 @@ const data = [
   {o:"CITNOVA",m:"Moto",d:10.2,n:15,p:22,coord:[20.13429852766681,-98.80154674584918]}
 ];
 
-
 // ----------  CÁLCULOS PARA KPI ----------
 let congSum=0, extraSum=0, maxCong=0, maxRoute="";
 data.forEach(r=>{
@@ -282,18 +296,20 @@ data.forEach(r=>{
 
 // ----------  CHARTS ----------
 const labels = data.map(r=>`${r.o}-${r.m}`);
+
 new Chart(document.getElementById("chartCong"),{
   type:"bar",
-  data:{labels,datasets:[{data:data.map(r=>r.cong),backgroundColor:"rgba(0,76,140,.8)"}]},
+  data:{labels,datasets:[{data:data.map(r=>+r.cong),backgroundColor:"rgba(0,76,140,.8)"}]},
   options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:"%"}},x:{ticks:{autoSkip:false}}}}
 });
+
 new Chart(document.getElementById("chartSpeed"),{
   type:"bar",
   data:{
     labels,
     datasets:[
-      {label:"Normal",   data:data.map(r=>r.spdN),backgroundColor:"rgba(53,132,255,.8)"},
-      {label:"Hora pico",data:data.map(r=>r.spdP),backgroundColor:"rgba(255,111,89,.8)"}
+      {label:"Normal",   data:data.map(r=>+r.spdN),backgroundColor:"rgba(53,132,255,.8)"},
+      {label:"Hora pico",data:data.map(r=>+r.spdP),backgroundColor:"rgba(255,111,89,.8)"}
     ]
   },
   options:{scales:{y:{beginAtZero:true,title:{display:true,text:"km/h"}}},plugins:{tooltip:{mode:"index",intersect:false}}}
@@ -321,51 +337,147 @@ legend.onAdd = ()=>{
 };
 legend.addTo(map);
 
-// Peso de línea proporcional al tiempo pico (3-10 px)
-const maxTime = Math.max(...data.map(r=>r.p));
-const scaleWeight = t => 3 + (t/maxTime)*7;
-
-// Dibujar rutas
-const drawnCount={}; // para offsets
-data.forEach(r=>{
-  const key = r.coord.join("|");
-  const offset = drawnCount[key] ? 0.001*drawnCount[key] : 0;
-  drawnCount[key] = (drawnCount[key]||0)+1;
-
-  // Punto origen (con ligero offset vertical)
-  const origin = [r.coord[0]+offset, r.coord[1]];
-  L.marker(origin).addTo(layerGroups[r.m==="TPúblico"?"Transporte público":r.m])
-    .bindPopup(`<strong>${r.o}</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
-
-  // Línea
-  L.polyline([origin,CASP],{
-    color:modeColors[r.m],
-    weight:scaleWeight(r.p),
-    opacity:.85,
-    dashArray: r.m==="Moto" ? "4 3" : r.m==="TPúblico" ? "2 6" : ""
-  })
-  .addTo(layerGroups[r.m==="TPúblico"?"Transporte público":r.m])
-  .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
-});
-
-// Agregar todas las capas al mapa por defecto
+// Agregar capas y control por modo
 Object.values(layerGroups).forEach(g=>g.addTo(map));
-
-// Control de capas
 L.control.layers(null,layerGroups,{collapsed:false,position:"topright"}).addTo(map);
 
 // Destino CASP
 L.marker(CASP,{title:"CASP"}).addTo(map).bindPopup("CASP").openPopup();
 
-/* ----------  NUEVO GRÁFICO 1: barra horizontal de minutos extra ---------- */
+// Peso de línea proporcional al tiempo pico (3-10 px)
+const maxTime = Math.max(...data.map(r=>r.p));
+const scaleWeight = t => 3 + (t/maxTime)*7;
 
+/* ----------  Dibujo inicial: líneas rectas (rápido) ---------- */
+const origins = [];                 // orígenes con offset usado en ambos modos
+const straightPolylines = [];       // referencias para poder quitarlas
+const drawnCount = {};              // offsets por mismo origen
+
+data.forEach((r, i)=>{
+  const key = r.coord.join("|");
+  const offset = drawnCount[key] ? 0.001*drawnCount[key] : 0;
+  drawnCount[key] = (drawnCount[key]||0)+1;
+
+  const origin = [r.coord[0]+offset, r.coord[1]];
+  origins[i] = origin;
+
+  const groupKey = r.m==="TPúblico"?"Transporte público":r.m;
+  const layer = layerGroups[groupKey];
+
+  // marcador de origen
+  L.marker(origin).addTo(layer)
+    .bindPopup(`<strong>${r.o}</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
+
+  // línea recta inicial
+  const line = L.polyline([origin, CASP],{
+    color:modeColors[r.m],
+    weight:scaleWeight(r.p),
+    opacity:.85,
+    dashArray: r.m==="Moto" ? "4 3" : r.m==="TPúblico" ? "2 6" : ""
+  })
+  .addTo(layer)
+  .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
+
+  straightPolylines[i] = line;
+});
+
+/* ----------  Overlay de carga y botón "Rutas reales" ---------- */
+// Spinner keyframes (simple)
+const styleSpin = document.createElement("style");
+styleSpin.textContent = "@keyframes spin{to{transform:rotate(360deg)}}";
+document.head.appendChild(styleSpin);
+
+// Overlay
+const mapWrapper = document.querySelector(".map-wrapper");
+const loading = document.createElement("div");
+loading.style.cssText = `
+  position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.75); z-index:1000; font:600 14px Montserrat,Arial,sans-serif;`;
+loading.innerHTML = `
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:#fff;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.15)">
+    <div style="width:24px;height:24px;border:3px solid #cfe0f5;border-top-color:#004c8c;border-radius:50%;animation:spin 1s linear infinite"></div>
+    <span>Calculando rutas…</span>
+  </div>`;
+mapWrapper.appendChild(loading);
+
+// Botón Leaflet
+let realDrawn = false;
+const runBtn = L.control({position:"topleft"});
+runBtn.onAdd = function(){
+  const div = L.DomUtil.create("div","leaflet-bar leaflet-control-routes"); // ← clase extra
+  const a = L.DomUtil.create("a","",div);
+  a.href = "#";
+  a.title = "Dibujar rutas reales";
+  a.textContent = "Rutas reales";
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.on(a,"click",(e)=>{
+    L.DomEvent.preventDefault(e);
+    if (!realDrawn) drawRealRoutes(a);
+  });
+  return div;
+};
+runBtn.addTo(map);
+
+/* ----------  RUTEO REAL CON OSRM (se ejecuta al pulsar el botón) ---------- */
+const OSRM_URL = "https://router.project-osrm.org/route/v1";
+const profileForMode = m => "driving"; // Auto/Moto/TPúblico → calles
+
+async function fetchRoute(fromLatLng, toLatLng, profile="driving") {
+  // OSRM espera lon,lat
+  const url = `${OSRM_URL}/${profile}/${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("OSRM error");
+  const json = await res.json();
+  return json.routes[0].geometry.coordinates.map(([lng,lat]) => [lat,lng]); // Leaflet: [lat,lng]
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function drawRealRoutes(btnEl){
+  btnEl.textContent = "Cargando…";
+  btnEl.classList.add("disabled");
+  btnEl.style.pointerEvents = "none";
+  loading.style.display = "flex";
+
+  for (let i=0; i<data.length; i++){
+    const r = data[i];
+    const origin = origins[i];
+    const groupKey = r.m==="TPúblico"?"Transporte público":r.m;
+    const layer = layerGroups[groupKey];
+
+    try {
+      const routeCoords = await fetchRoute(origin, CASP, profileForMode(r.m));
+      // quitar la línea recta correspondiente (si aún existe)
+      if (straightPolylines[i]) straightPolylines[i].remove();
+
+      L.polyline(routeCoords, {
+        color: modeColors[r.m],
+        weight: scaleWeight(r.p),
+        opacity: .9,
+        dashArray: r.m==="Moto" ? "4 3" : r.m==="TPúblico" ? "2 6" : ""
+      })
+      .addTo(layer)
+      .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
+    } catch (e) {
+      // si falla OSRM, dejamos la recta existente
+      console.warn("Ruta OSRM falló para", r.o, r.m, e);
+    }
+    // pausa para no saturar el servidor demo
+    await sleep(150);
+  }
+
+  loading.style.display = "none";
+  btnEl.textContent = "Rutas reales ✓";
+  realDrawn = true;
+}
+
+/* ----------  GRÁFICO: Minutos extra (Top 15, altura dinámica) ---------- */
 const extraSorted = [...data].sort((a,b)=> b.extra - a.extra);
 const TOP = 15;
 const extraTop = extraSorted.slice(0, TOP);
 
-// Altura dinámica (~26 px por barra)
+// Altura ~26 px por barra
 const extraCanvas = document.getElementById("chartExtra");
-extraCanvas.height = extraTop.length * 26;   // <- clave
+extraCanvas.height = extraTop.length * 26;
 
 new Chart(extraCanvas, {
   type: "bar",
@@ -375,17 +487,16 @@ new Chart(extraCanvas, {
   },
   options: {
     indexAxis: "y",
-    maintainAspectRatio: false,                  // <- clave
+    maintainAspectRatio: false,
     plugins: { legend: { display: false } },
     scales: {
       x: { title: { display: true, text: "Minutos" }, beginAtZero: true },
-      y: { ticks: { autoSkip: false } }          // no saltes etiquetas
+      y: { ticks: { autoSkip: false } }
     }
   }
 });
 
-
-/* ----------  NUEVO GRÁFICO 2: doughnut promedio por modo ---------- */
+/* ----------  GRÁFICO: doughnut promedio por modo ---------- */
 const modes = {"Auto":{sum:0,n:0},"Moto":{sum:0,n:0},"TPúblico":{sum:0,n:0}};
 data.forEach(r=>{modes[r.m].sum+=+r.cong; modes[r.m].n++});
 const modoLabels = ["Auto","Moto","Transporte público"];
@@ -397,15 +508,10 @@ const modoColors = ["#3584ff","#ff6f59","#ffa630"];
 
 new Chart(document.getElementById("chartModo"),{
   type:"doughnut",
-  data:{
-    labels:modoLabels,
-    datasets:[{data:modoVals,backgroundColor:modoColors}]
-  },
+  data:{ labels:modoLabels, datasets:[{data:modoVals,backgroundColor:modoColors}] },
   options:{
     plugins:{
-      tooltip:{callbacks:{
-        label:ctx=>`${ctx.label}: ${ctx.raw}%`
-      }},
+      tooltip:{callbacks:{ label:ctx=>`${ctx.label}: ${ctx.raw}%` }},
       legend:{position:"bottom"}
     }
   }
