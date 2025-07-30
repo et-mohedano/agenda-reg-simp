@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Panel de Recorridos hacia el CASP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root{
+  --primary:#004c8c;
+  --secondary:#ff6f59;
+  --bg:#f5f8fc;
+  --card:#ffffff;
+  --radius:12px;
+  --shadow:0 4px 16px rgba(0,0,0,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Montserrat',Arial,Helvetica,sans-serif;background:var(--bg);color:#222;line-height:1.6}
+h1,h2,h3{font-weight:600}
+header{
+  background:linear-gradient(135deg,var(--primary),#007ad0);
+  color:#fff;text-align:center;padding:2.4rem 1rem;box-shadow:var(--shadow)}
+header h1{font-size:1.9rem}
+.container{max-width:1280px;margin:auto;padding:2rem 1rem 3rem;display:flex;flex-direction:column;gap:2rem}
+
+/* --- Card --- */
+.card{background:var(--card);border-radius:var(--radius);padding:1.5rem;box-shadow:var(--shadow)}
+
+/* --- KPI --- */
+.kpi-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.kpi{display:flex;flex-direction:column;align-items:center;gap:.35rem}
+.kpi h3{font-size:2.15rem;color:var(--primary)}
+.kpi span{text-align:center;font-size:.9rem}
+
+/* --- Mapa --- */
+.map-wrapper{position:relative}
+#map{height:480px;border-radius:var(--radius)}
+.map-title{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  background:rgba(0,76,140,.95);color:#fff;padding:6px 14px;border-radius:8px;
+  font-size:.95rem;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none;z-index:999}
+
+/* --- Charts --- */
+.chart-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+canvas{max-height:380px}
+
+/* --- Tabla --- */
+.table-wrapper{overflow-x:auto;border-radius:var(--radius)}
+table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:680px}
+thead tr{background:var(--primary);color:#fff}
+th,td{padding:10px 12px;text-align:center;border-bottom:1px solid #e5eaf2}
+tbody tr:nth-child(even){background:#f0f3f8}
+tbody tr:hover{background:#e7f0fc}
+
+/* --- Listado de fórmulas --- */
+.metrics-list{margin-left:1.4rem}
+.metrics-list li{margin-bottom:.55rem}
+small{color:#555}
+
+/* --- Leyenda Leaflet --- */
+.leaflet-control.legend{
+  background:var(--card);padding:8px 10px;font-size:.75rem;
+  border-radius:8px;line-height:1.4;box-shadow:var(--shadow)}
+.legend div{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.legend span.box{width:14px;height:14px;border-radius:3px;display:inline-block}
+
+@media(max-width:600px){header h1{font-size:1.45rem}}
+
+/* ----------  Fórmulas ---------- */
+.metric-grid{
+  display:grid;
+  gap:1rem;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+}
+.metric-box{
+  background:var(--card);
+  border:1px solid #e5eaf2;
+  border-radius:var(--radius);
+  padding:1rem 1.2rem;
+  box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:.55rem;
+}
+.metric-title{color:var(--primary);font-size:1rem;font-weight:600}
+.metric-formula{
+  font-family:'Courier New',monospace;
+  background:#f0f3f8;
+  padding:.3rem .5rem;
+  border-radius:6px;
+  text-align:center;
+  white-space:nowrap;
+}
+.metric-desc{font-size:.8rem;color:#555;line-height:1.35}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>Rendimiento de los Recorridos hacia el Centro Administrativo y de Servicios para el Pueblo (CASP)</h1>
+</header>
+
+<div class="container">
+
+  <!-- KPI -->
+  <section class="card kpi-grid" id="kpiPanel"></section>
+
+  <!-- Fórmulas -->
+  <!-- Fórmulas -->
+<section class="metric-grid">
+  <!-- congestión -->
+  <div class="metric-box">
+    <div class="metric-title">Índice de congestión (%)</div>
+    <div class="metric-formula">((T<sub>pico</sub> − T<sub>normal</sub>) / T<sub>normal</sub>) × 100</div>
+    <div class="metric-desc">
+      &lt; 30 % = leve · 30-60 % = media · &gt; 60 % = severa
+    </div>
+  </div>
+
+  <!-- minutos extra -->
+  <div class="metric-box">
+    <div class="metric-title">Minutos extra</div>
+    <div class="metric-formula">T<sub>pico</sub> − T<sub>normal</sub></div>
+    <div class="metric-desc">
+      Diferencia absoluta de tiempo invertido en hora pico.
+    </div>
+  </div>
+
+  <!-- velocidad -->
+  <div class="metric-box">
+    <div class="metric-title">Velocidad promedio (km/h)</div>
+    <div class="metric-formula">D / (T / 60)</div>
+    <div class="metric-desc">
+      Relación distancia–tiempo para comparar eficiencia entre modos.
+    </div>
+  </div>
+</section>
+
+  <!-- Mapa -->
+  <section class="card map-wrapper">
+    <div id="map"></div>
+    <div class="map-title">Recorridos hacia el CASP (Pachuca)</div>
+  </section>
+
+  <!-- Gráficos -->
+  <section class="chart-grid">
+    <div class="card"><h3 style="text-align:center;margin-bottom:.5rem">Índice de congestión</h3><canvas id="chartCong"></canvas></div>
+    <div class="card"><h3 style="text-align:center;margin-bottom:.5rem">Velocidad promedio (km/h)</h3><canvas id="chartSpeed"></canvas></div>
+  </section>
+
+  <!-- Tabla -->
+  <section class="card table-wrapper">
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th>Origen</th><th>Medio</th><th>Distancia (km)</th>
+          <th>Tiempo normal (min)</th><th>Tiempo pico (min)</th>
+          <th>Minutos extra</th><th>Índice congestión (%)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <p style="text-align:center;font-size:.8rem;color:#666">Fuente: Estimaciones propias · julio 2025</p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ----------  DATA ----------
+const CASP   = [20.09392313599385,-98.76750647488912];
+const data = [
+ {o:"El Palmar", m:"Auto",      d:3.7, n: 9, p: 20, coord:[20.111585091404834,-98.77232569887329]},
+ {o:"El Palmar", m:"Auto",      d:4.3, n:11, p: 16, coord:[20.111585091404834,-98.77232569887329]},
+ {o:"El Palmar", m:"Moto",      d:3.7, n: 8, p: 12, coord:[20.111585091404834,-98.77232569887329]},
+ {o:"El Palmar", m:"TPúblico",  d:3.7, n:41, p: 60, coord:[20.111585091404834,-98.77232569887329]},
+ {o:"San Bartolo", m:"Auto",    d:9.0, n:16, p: 26, coord:[20.1268113767428 ,-98.76401657212752]},
+ {o:"San Bartolo", m:"Auto",    d:9.5, n:18, p: 26, coord:[20.1268113767428 ,-98.76401657212752]},
+ {o:"San Bartolo", m:"Moto",    d:9.0, n:15, p: 24, coord:[20.1268113767428 ,-98.76401657212752]},
+ {o:"San Bartolo", m:"Moto",    d:9.5, n:16, p: 24, coord:[20.1268113767428 ,-98.76401657212752]},
+ {o:"San Bartolo", m:"TPúblico",d:9.0, n:87, p:107, coord:[20.1268113767428 ,-98.76401657212752]},
+ {o:"CITNOVA",     m:"Auto",    d:10.2,n:15, p: 26, coord:[20.13429852766681,-98.80154674584918]},
+ {o:"CITNOVA",     m:"Moto",    d:10.2,n:15, p: 22, coord:[20.13429852766681,-98.80154674584918]}
+];
+
+// ----------  CÁLCULOS PARA KPI ----------
+let congSum=0, extraSum=0, maxCong=0, maxRoute="";
+data.forEach(r=>{
+  r.cong  = ((r.p - r.n) / r.n * 100).toFixed(1);
+  r.extra = r.p - r.n;
+  r.spdN  = (r.d / (r.n/60)).toFixed(1);
+  r.spdP  = (r.d / (r.p/60)).toFixed(1);
+  congSum += +r.cong;
+  extraSum+= r.extra;
+  if(+r.cong > maxCong){ maxCong = +r.cong; maxRoute = `${r.o} – ${r.m}`; }
+});
+const avgCong = (congSum / data.length).toFixed(1);
+
+// ----------  RENDER KPI ----------
+const kpiPanel = document.getElementById("kpiPanel");
+[
+  {t:"Congestión promedio", v:`${avgCong}%`,  d:"Aumento medio del tiempo de viaje"},
+  {t:"Tiempo total extra",  v:`${extraSum} min`, d:"Minutos adicionales acumulados"},
+  {t:"Peor caso",          v:maxRoute,        d:`Índice ${maxCong}%`}
+].forEach(k=>{
+  kpiPanel.insertAdjacentHTML("beforeend",
+    `<div class="kpi"><h3>${k.v}</h3><span><strong>${k.t}</strong><br>${k.d}</span></div>`
+  );
+});
+
+// ----------  TABLA ----------
+const tbody = document.querySelector("#dataTable tbody");
+data.forEach(r=>{
+  tbody.insertAdjacentHTML("beforeend",
+    `<tr><td>${r.o}</td><td>${r.m}</td><td>${r.d}</td><td>${r.n}</td><td>${r.p}</td><td>${r.extra}</td><td>${r.cong}</td></tr>`
+  );
+});
+
+// ----------  CHARTS ----------
+const labels = data.map(r=>`${r.o}-${r.m}`);
+new Chart(document.getElementById("chartCong"),{
+  type:"bar",
+  data:{labels,datasets:[{data:data.map(r=>r.cong),backgroundColor:"rgba(0,76,140,.8)"}]},
+  options:{plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,title:{display:true,text:"%"}},x:{ticks:{autoSkip:false}}}}
+});
+new Chart(document.getElementById("chartSpeed"),{
+  type:"bar",
+  data:{
+    labels,
+    datasets:[
+      {label:"Normal",   data:data.map(r=>r.spdN),backgroundColor:"rgba(53,132,255,.8)"},
+      {label:"Hora pico",data:data.map(r=>r.spdP),backgroundColor:"rgba(255,111,89,.8)"}
+    ]
+  },
+  options:{scales:{y:{beginAtZero:true,title:{display:true,text:"km/h"}}},plugins:{tooltip:{mode:"index",intersect:false}}}
+});
+
+// ----------  MAPA ----------
+const map = L.map("map",{scrollWheelZoom:false}).setView(CASP,12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:19, attribution:"© OpenStreetMap"
+}).addTo(map);
+
+// Colores y capas por modo
+const modeColors = { "Auto":"#3584ff","Moto":"#ff6f59","TPúblico":"#ffa630" };
+const layerGroups = { "Auto":L.layerGroup(), "Moto":L.layerGroup(), "Transporte público":L.layerGroup() };
+
+// Leyenda de colores
+const legend = L.control({position:"bottomright"});
+legend.onAdd = ()=>{
+  const div = L.DomUtil.create("div","legend");
+  Object.entries(modeColors).forEach(([m,c])=>{
+    const label = m==="TPúblico" ? "Transporte público" : m;
+    div.innerHTML += `<div><span class="box" style="background:${c}"></span>${label}</div>`;
+  });
+  return div;
+};
+legend.addTo(map);
+
+// Peso de línea proporcional al tiempo pico (3-10 px)
+const maxTime = Math.max(...data.map(r=>r.p));
+const scaleWeight = t => 3 + (t/maxTime)*7;
+
+// Dibujar rutas
+const drawnCount={}; // para offsets
+data.forEach(r=>{
+  const key = r.coord.join("|");
+  const offset = drawnCount[key] ? 0.001*drawnCount[key] : 0;
+  drawnCount[key] = (drawnCount[key]||0)+1;
+
+  // Punto origen (con ligero offset vertical)
+  const origin = [r.coord[0]+offset, r.coord[1]];
+  L.marker(origin).addTo(layerGroups[r.m==="TPúblico"?"Transporte público":r.m])
+    .bindPopup(`<strong>${r.o}</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
+
+  // Línea
+  L.polyline([origin,CASP],{
+    color:modeColors[r.m],
+    weight:scaleWeight(r.p),
+    opacity:.85,
+    dashArray: r.m==="Moto" ? "4 3" : r.m==="TPúblico" ? "2 6" : ""
+  })
+  .addTo(layerGroups[r.m==="TPúblico"?"Transporte público":r.m])
+  .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
+});
+
+// Agregar todas las capas al mapa por defecto
+Object.values(layerGroups).forEach(g=>g.addTo(map));
+
+// Control de capas
+L.control.layers(null,layerGroups,{collapsed:false,position:"topright"}).addTo(map);
+
+// Destino CASP
+L.marker(CASP,{title:"CASP"}).addTo(map).bindPopup("CASP").openPopup();
+</script>
+</body>
+</html>
