@@ -348,11 +348,17 @@ L.marker(CASP,{title:"CASP"}).addTo(map).bindPopup("CASP").openPopup();
 const maxTime = Math.max(...data.map(r=>r.p));
 const scaleWeight = t => 3 + (t/maxTime)*7;
 
-/* ----------  Dibujo inicial: líneas rectas (rápido) ---------- */
-const origins = [];                 // orígenes con offset usado en ambos modos
-const straightPolylines = [];       // referencias para poder quitarlas
-const drawnCount = {};              // offsets por mismo origen
+/* ----------  Dibujo inicial: líneas rectas (rápido) + toggle ---------- */
 
+// Guardamos referencias para poder alternar
+const origins = [];
+const drawnCount = {};
+const straightPolylines = [];   // [{ pl, layer }]
+const realPolylines = [];       // [{ pl, layer }]
+let realBuilt = false;          // ya calculamos rutas reales con OSRM
+let currentMode = "straight";   // "straight" | "real"
+
+// Dibujar marcadores y líneas rectas visibles al inicio
 data.forEach((r, i)=>{
   const key = r.coord.join("|");
   const offset = drawnCount[key] ? 0.001*drawnCount[key] : 0;
@@ -361,14 +367,14 @@ data.forEach((r, i)=>{
   const origin = [r.coord[0]+offset, r.coord[1]];
   origins[i] = origin;
 
-  const groupKey = r.m==="TPúblico"?"Transporte público":r.m;
+  const groupKey = r.m==="TPúblico" ? "Transporte público" : r.m;
   const layer = layerGroups[groupKey];
 
-  // marcador de origen
+  // marcador
   L.marker(origin).addTo(layer)
     .bindPopup(`<strong>${r.o}</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
 
-  // línea recta inicial
+  // línea recta inicial (visible)
   const line = L.polyline([origin, CASP],{
     color:modeColors[r.m],
     weight:scaleWeight(r.p),
@@ -378,16 +384,14 @@ data.forEach((r, i)=>{
   .addTo(layer)
   .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
 
-  straightPolylines[i] = line;
+  straightPolylines.push({ pl: line, layer });
 });
 
-/* ----------  Overlay de carga y botón "Rutas reales" ---------- */
-// Spinner keyframes (simple)
+// ---- Overlay “Cargando…” y botón ----
 const styleSpin = document.createElement("style");
 styleSpin.textContent = "@keyframes spin{to{transform:rotate(360deg)}}";
 document.head.appendChild(styleSpin);
 
-// Overlay
 const mapWrapper = document.querySelector(".map-wrapper");
 const loading = document.createElement("div");
 loading.style.cssText = `
@@ -400,56 +404,95 @@ loading.innerHTML = `
   </div>`;
 mapWrapper.appendChild(loading);
 
-// Botón Leaflet
-let realDrawn = false;
-const runBtn = L.control({position:"topleft"});
-runBtn.onAdd = function(){
-  const div = L.DomUtil.create("div","leaflet-bar leaflet-control-routes"); // ← clase extra
+// helpers para mostrar/ocultar colecciones de polilíneas
+function showPolys(list){ list.forEach(({pl,layer})=>{ if(!map.hasLayer(pl)) pl.addTo(layer); }); }
+function hidePolys(list){ list.forEach(({pl})=>{ if(map.hasLayer(pl)) map.removeLayer(pl); }); }
+
+function setRoutesMode(mode){
+  if(mode==="real"){
+    hidePolys(straightPolylines);
+    showPolys(realPolylines);
+    currentMode = "real";
+  }else{
+    hidePolys(realPolylines);
+    showPolys(straightPolylines);
+    currentMode = "straight";
+  }
+  updateButtonLabel();
+}
+
+// Botón Leaflet (ancho personalizable con CSS .leaflet-control-routes)
+let routesBtnEl;
+const toggleBtn = L.control({position:"topleft"});
+toggleBtn.onAdd = function(){
+  const div = L.DomUtil.create("div","leaflet-bar leaflet-control-routes");
   const a = L.DomUtil.create("a","",div);
   a.href = "#";
-  a.title = "Dibujar rutas reales";
-  a.textContent = "Rutas reales";
+  routesBtnEl = a;
+  updateButtonLabel();
+  a.style.padding = "0 14px"; a.style.height = "36px"; a.style.lineHeight = "36px"; a.style.whiteSpace = "nowrap"; a.style.fontWeight = "600";
   L.DomEvent.disableClickPropagation(div);
-  L.DomEvent.on(a,"click",(e)=>{
+  L.DomEvent.on(a,"click", async (e)=>{
     L.DomEvent.preventDefault(e);
-    if (!realDrawn) drawRealRoutes(a);
+    if(!realBuilt && currentMode==="straight"){
+      // 1ª vez: calcular rutas reales y luego conmutar
+      await computeRealRoutes();
+      setRoutesMode("real");
+    }else{
+      // alternar
+      setRoutesMode(currentMode==="real" ? "straight" : "real");
+    }
   });
   return div;
 };
-runBtn.addTo(map);
+toggleBtn.addTo(map);
 
-/* ----------  RUTEO REAL CON OSRM (se ejecuta al pulsar el botón) ---------- */
+function updateButtonLabel(){
+  if(!routesBtnEl) return;
+  if(!realBuilt && currentMode==="straight"){
+    routesBtnEl.textContent = "Rutas reales";
+    routesBtnEl.title = "Dibujar rutas reales por calles";
+  }else if(currentMode==="real"){
+    routesBtnEl.textContent = "Líneas rectas";
+    routesBtnEl.title = "Volver a las líneas rectas";
+  }else{
+    routesBtnEl.textContent = "Rutas reales";
+    routesBtnEl.title = "Mostrar rutas reales";
+  }
+}
+
+// ---- OSRM (se llama bajo demanda) ----
 const OSRM_URL = "https://router.project-osrm.org/route/v1";
-const profileForMode = m => "driving"; // Auto/Moto/TPúblico → calles
+const profileForMode = m => "driving";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function fetchRoute(fromLatLng, toLatLng, profile="driving") {
-  // OSRM espera lon,lat
   const url = `${OSRM_URL}/${profile}/${fromLatLng[1]},${fromLatLng[0]};${toLatLng[1]},${toLatLng[0]}?overview=full&geometries=geojson`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("OSRM error");
   const json = await res.json();
-  return json.routes[0].geometry.coordinates.map(([lng,lat]) => [lat,lng]); // Leaflet: [lat,lng]
+  return json.routes[0].geometry.coordinates.map(([lng,lat]) => [lat,lng]);
 }
-const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function drawRealRoutes(btnEl){
-  btnEl.textContent = "Cargando…";
-  btnEl.classList.add("disabled");
-  btnEl.style.pointerEvents = "none";
+async function computeRealRoutes(){
+  // UI estado “cargando”
+  routesBtnEl.textContent = "Cargando…";
+  routesBtnEl.style.pointerEvents = "none";
   loading.style.display = "flex";
 
-  for (let i=0; i<data.length; i++){
+  for(let i=0;i<data.length;i++){
     const r = data[i];
     const origin = origins[i];
-    const groupKey = r.m==="TPúblico"?"Transporte público":r.m;
+    const groupKey = r.m==="TPúblico" ? "Transporte público" : r.m;
     const layer = layerGroups[groupKey];
 
-    try {
+    try{
       const routeCoords = await fetchRoute(origin, CASP, profileForMode(r.m));
-      // quitar la línea recta correspondiente (si aún existe)
-      if (straightPolylines[i]) straightPolylines[i].remove();
-
-      L.polyline(routeCoords, {
+      // ocultar la recta equivalente mientras se dibuja la real
+      if(straightPolylines[i]?.pl && map.hasLayer(straightPolylines[i].pl)){
+        map.removeLayer(straightPolylines[i].pl);
+      }
+      const routeLine = L.polyline(routeCoords, {
         color: modeColors[r.m],
         weight: scaleWeight(r.p),
         opacity: .9,
@@ -457,19 +500,21 @@ async function drawRealRoutes(btnEl){
       })
       .addTo(layer)
       .bindPopup(`<strong>${r.o} → CASP</strong><br>${r.m}<br>Normal ${r.n} min<br>Pico ${r.p} min`);
-    } catch (e) {
-      // si falla OSRM, dejamos la recta existente
+
+      realPolylines.push({ pl: routeLine, layer });
+    }catch(e){
       console.warn("Ruta OSRM falló para", r.o, r.m, e);
+      // si falla: conservamos la recta
+      realPolylines.push({ pl: L.polyline([]), layer }); // placeholder para mantener índice
     }
-    // pausa para no saturar el servidor demo
-    await sleep(150);
+    await sleep(150); // evita rate limit
   }
 
+  realBuilt = true;
   loading.style.display = "none";
-  btnEl.textContent = "Rutas reales ✓";
-  realDrawn = true;
+  routesBtnEl.style.pointerEvents = "auto";
+  updateButtonLabel();
 }
-
 /* ----------  GRÁFICO: Minutos extra (Top 15, altura dinámica) ---------- */
 const extraSorted = [...data].sort((a,b)=> b.extra - a.extra);
 const TOP = 15;
