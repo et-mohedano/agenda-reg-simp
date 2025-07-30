@@ -44,7 +44,7 @@ header h1{font-size:1.9rem}
   font-size:.95rem;box-shadow:0 2px 6px rgba(0,0,0,.25);pointer-events:none;z-index:999}
 
 /* --- Charts --- */
-.chart-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.chart-grid{display:grid;gap:1.5rem;grid-template-columns:repeat(2,1fr);}
 canvas{max-height:380px}
 
 /* --- Tabla --- */
@@ -107,7 +107,6 @@ small{color:#555}
   <section class="card kpi-grid" id="kpiPanel"></section>
 
   <!-- Fórmulas -->
-  <!-- Fórmulas -->
 <section class="metric-grid">
   <!-- congestión -->
   <div class="metric-box">
@@ -147,7 +146,18 @@ small{color:#555}
   <section class="chart-grid">
     <div class="card"><h3 style="text-align:center;margin-bottom:.5rem">Índice de congestión</h3><canvas id="chartCong"></canvas></div>
     <div class="card"><h3 style="text-align:center;margin-bottom:.5rem">Velocidad promedio (km/h)</h3><canvas id="chartSpeed"></canvas></div>
-  </section>
+    <!-- NUEVO: minutos extra -->
+    <div class="card">
+        <h3 style="text-align:center;margin-bottom:.5rem">Minutos extra por recorrido</h3>
+        <canvas id="chartExtra"></canvas>
+    </div>
+
+    <!-- NUEVO: promedio de congestión por modo -->
+    <div class="card">
+        <h3 style="text-align:center;margin-bottom:.5rem">Índice de congestión promedio por modo</h3>
+        <canvas id="chartModo"></canvas>
+    </div>
+</section>
 
   <!-- Tabla -->
   <section class="card table-wrapper">
@@ -171,18 +181,63 @@ small{color:#555}
 // ----------  DATA ----------
 const CASP   = [20.09392313599385,-98.76750647488912];
 const data = [
- {o:"El Palmar", m:"Auto",      d:3.7, n: 9, p: 20, coord:[20.111585091404834,-98.77232569887329]},
- {o:"El Palmar", m:"Auto",      d:4.3, n:11, p: 16, coord:[20.111585091404834,-98.77232569887329]},
- {o:"El Palmar", m:"Moto",      d:3.7, n: 8, p: 12, coord:[20.111585091404834,-98.77232569887329]},
- {o:"El Palmar", m:"TPúblico",  d:3.7, n:41, p: 60, coord:[20.111585091404834,-98.77232569887329]},
- {o:"San Bartolo", m:"Auto",    d:9.0, n:16, p: 26, coord:[20.1268113767428 ,-98.76401657212752]},
- {o:"San Bartolo", m:"Auto",    d:9.5, n:18, p: 26, coord:[20.1268113767428 ,-98.76401657212752]},
- {o:"San Bartolo", m:"Moto",    d:9.0, n:15, p: 24, coord:[20.1268113767428 ,-98.76401657212752]},
- {o:"San Bartolo", m:"Moto",    d:9.5, n:16, p: 24, coord:[20.1268113767428 ,-98.76401657212752]},
- {o:"San Bartolo", m:"TPúblico",d:9.0, n:87, p:107, coord:[20.1268113767428 ,-98.76401657212752]},
- {o:"CITNOVA",     m:"Auto",    d:10.2,n:15, p: 26, coord:[20.13429852766681,-98.80154674584918]},
- {o:"CITNOVA",     m:"Moto",    d:10.2,n:15, p: 22, coord:[20.13429852766681,-98.80154674584918]}
+  /* Centro de Pachuca */
+  {o:"Centro Pachuca",m:"Auto",d:8.3,n:20,p:30,coord:[20.128504020577026,-98.73169232412747]},
+  {o:"Centro Pachuca",m:"Moto",d:8.3,n:18,p:25,coord:[20.128504020577026,-98.73169232412747]},
+  {o:"Centro Pachuca",m:"Auto",d:5.6,n:20,p:25,coord:[20.128504020577026,-98.73169232412747]},
+  {o:"Centro Pachuca",m:"TPúblico",d:5.6,n:35,p:45,coord:[20.128504020577026,-98.73169232412747]},
+
+  /* Matilde */
+  {o:"Matilde",m:"Auto",d:6.9,n:17,p:30,coord:[20.035550205268024,-98.80658660108304]},
+  {o:"Matilde",m:"Moto",d:6.9,n:16,p:25,coord:[20.035550205268024,-98.80658660108304]},
+  {o:"Matilde",m:"TPúblico",d:6.9,n:50,p:70,coord:[20.035550205268024,-98.80658660108304]},
+
+  /* San Antonio */
+  {o:"San Antonio",m:"Auto",d:4.1,n:10,p:20,coord:[20.050817738503294,-98.79128183567823]},
+  {o:"San Antonio",m:"Moto",d:4.1,n:10,p:18,coord:[20.050817738503294,-98.79128183567823]},
+  {o:"San Antonio",m:"TPúblico",d:4.1,n:28,p:48,coord:[20.050817738503294,-98.79128183567823]},
+
+  /* Tlapacoya */
+  {o:"Tlapacoya",m:"Auto",d:9.5,n:13,p:20,coord:[20.100041671299582,-98.83358417755532]},
+  {o:"Tlapacoya",m:"Moto",d:9.5,n:13,p:18,coord:[20.100041671299582,-98.83358417755532]},
+  {o:"Tlapacoya",m:"Auto",d:10 ,n:14,p:25,coord:[20.100041671299582,-98.83358417755532]},
+
+  /* Pachuquilla */
+  {o:"Pachuquilla",m:"Auto",d:10.3,n:18,p:30,coord:[20.070553589771816,-98.6966341815381]},
+  {o:"Pachuquilla",m:"Moto",d:10.3,n:17,p:25,coord:[20.070553589771816,-98.6966341815381]},
+
+  /* Cubitos */
+  {o:"Cubitos",m:"Auto",d:7.3,n:13,p:25,coord:[20.10941238974311,-98.73541384875897]},
+  {o:"Cubitos",m:"Moto",d:7.3,n:14,p:18,coord:[20.10941238974311,-98.73541384875897]},
+  {o:"Cubitos",m:"TPúblico",d:5.2,n:48,p:77,coord:[20.10941238974311,-98.73541384875897]},
+
+  /* Chavarría */
+  {o:"Chavarría",m:"Auto",d:11.7,n:21,p:45,coord:[20.042851244291892,-98.71718217338808]},
+  {o:"Chavarría",m:"Moto",d:11.7,n:20,p:40,coord:[20.042851244291892,-98.71718217338808]},
+
+  /* El Chacón */
+  {o:"El Chacón",m:"Auto",d:5.7,n:13,p:28,coord:[20.07659742855365,-98.73883684908948]},
+  {o:"El Chacón",m:"Moto",d:5.7,n:12,p:25,coord:[20.07659742855365,-98.73883684908948]},
+  {o:"El Chacón",m:"TPúblico",d:5.7,n:41,p:55,coord:[20.07659742855365,-98.73883684908948]},
+
+  /* El Palmar (ya existía) */
+  {o:"El Palmar",m:"Auto",d:3.7,n:9 ,p:20,coord:[20.111585091404834,-98.77232569887329]},
+  {o:"El Palmar",m:"Auto",d:4.3,n:11,p:16,coord:[20.111585091404834,-98.77232569887329]},
+  {o:"El Palmar",m:"Moto",d:3.7,n:8 ,p:12,coord:[20.111585091404834,-98.77232569887329]},
+  {o:"El Palmar",m:"TPúblico",d:3.7,n:41,p:60,coord:[20.111585091404834,-98.77232569887329]},
+
+  /* San Bartolo (ya existía) */
+  {o:"San Bartolo",m:"Auto",d:9.0,n:16,p:26,coord:[20.1268113767428,-98.76401657212752]},
+  {o:"San Bartolo",m:"Auto",d:9.5,n:18,p:26,coord:[20.1268113767428,-98.76401657212752]},
+  {o:"San Bartolo",m:"Moto",d:9.0,n:15,p:24,coord:[20.1268113767428,-98.76401657212752]},
+  {o:"San Bartolo",m:"Moto",d:9.5,n:16,p:24,coord:[20.1268113767428,-98.76401657212752]},
+  {o:"San Bartolo",m:"TPúblico",d:9.0,n:87,p:107,coord:[20.1268113767428,-98.76401657212752]},
+
+  /* CITNOVA (ya existía) */
+  {o:"CITNOVA",m:"Auto",d:10.2,n:15,p:26,coord:[20.13429852766681,-98.80154674584918]},
+  {o:"CITNOVA",m:"Moto",d:10.2,n:15,p:22,coord:[20.13429852766681,-98.80154674584918]}
 ];
+
 
 // ----------  CÁLCULOS PARA KPI ----------
 let congSum=0, extraSum=0, maxCong=0, maxRoute="";
@@ -293,6 +348,49 @@ L.control.layers(null,layerGroups,{collapsed:false,position:"topright"}).addTo(m
 
 // Destino CASP
 L.marker(CASP,{title:"CASP"}).addTo(map).bindPopup("CASP").openPopup();
+
+/* ----------  NUEVO GRÁFICO 1: barra horizontal de minutos extra ---------- */
+const extraSorted = [...data].sort((a,b)=>b.extra-a.extra);
+new Chart(document.getElementById("chartExtra"),{
+  type:"bar",
+  data:{
+    labels: extraSorted.map(r=>`${r.o}-${r.m}`),
+    datasets:[{data:extraSorted.map(r=>r.extra),
+               backgroundColor:"rgba(0,76,140,.8)"}]
+  },
+  options:{
+    indexAxis:"y",                           // barra horizontal
+    plugins:{legend:{display:false}},
+    scales:{x:{title:{display:true,text:"Minutos"}}}
+  }
+});
+
+/* ----------  NUEVO GRÁFICO 2: doughnut promedio por modo ---------- */
+const modes = {"Auto":{sum:0,n:0},"Moto":{sum:0,n:0},"TPúblico":{sum:0,n:0}};
+data.forEach(r=>{modes[r.m].sum+=+r.cong; modes[r.m].n++});
+const modoLabels = ["Auto","Moto","Transporte público"];
+const modoVals   = modoLabels.map(l=>{
+  const key = l==="Transporte público"?"TPúblico":l;
+  return +(modes[key].sum/modes[key].n).toFixed(1);
+});
+const modoColors = ["#3584ff","#ff6f59","#ffa630"];
+
+new Chart(document.getElementById("chartModo"),{
+  type:"doughnut",
+  data:{
+    labels:modoLabels,
+    datasets:[{data:modoVals,backgroundColor:modoColors}]
+  },
+  options:{
+    plugins:{
+      tooltip:{callbacks:{
+        label:ctx=>`${ctx.label}: ${ctx.raw}%`
+      }},
+      legend:{position:"bottom"}
+    }
+  }
+});
+
 </script>
 </body>
 </html>
