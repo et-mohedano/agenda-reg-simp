@@ -93,6 +93,14 @@ small{color:#555}
   white-space:nowrap;
 }
 .metric-desc{font-size:.8rem;color:#555;line-height:1.35}
+@media(max-width:900px){                 /* móvil: 1 columna */
+  .chart-grid{
+    grid-template-columns:1fr;
+  }
+  .chart-grid .card{
+    max-width: 100%;
+  }
+}
 </style>
 </head>
 
@@ -148,7 +156,7 @@ small{color:#555}
     <div class="card"><h3 style="text-align:center;margin-bottom:.5rem">Velocidad promedio (km/h)</h3><canvas id="chartSpeed"></canvas></div>
     <!-- NUEVO: minutos extra -->
     <div class="card">
-        <h3 style="text-align:center;margin-bottom:.5rem">Minutos extra por recorrido</h3>
+        <h3 style="text-align:center;margin-bottom:.5rem">Minutos extra por recorrido (top 15)</h3>
         <canvas id="chartExtra"></canvas>
     </div>
 
@@ -350,20 +358,32 @@ L.control.layers(null,layerGroups,{collapsed:false,position:"topright"}).addTo(m
 L.marker(CASP,{title:"CASP"}).addTo(map).bindPopup("CASP").openPopup();
 
 /* ----------  NUEVO GRÁFICO 1: barra horizontal de minutos extra ---------- */
-const extraSorted = [...data].sort((a,b)=>b.extra-a.extra);
-new Chart(document.getElementById("chartExtra"),{
-  type:"bar",
-  data:{
-    labels: extraSorted.map(r=>`${r.o}-${r.m}`),
-    datasets:[{data:extraSorted.map(r=>r.extra),
-               backgroundColor:"rgba(0,76,140,.8)"}]
+
+const extraSorted = [...data].sort((a,b)=> b.extra - a.extra);
+const TOP = 15;
+const extraTop = extraSorted.slice(0, TOP);
+
+// Altura dinámica (~26 px por barra)
+const extraCanvas = document.getElementById("chartExtra");
+extraCanvas.height = extraTop.length * 26;   // <- clave
+
+new Chart(extraCanvas, {
+  type: "bar",
+  data: {
+    labels: extraTop.map(r => `${r.o}-${r.m}`),
+    datasets: [{ data: extraTop.map(r => r.extra), backgroundColor: "rgba(0,76,140,.8)" }]
   },
-  options:{
-    indexAxis:"y",                           // barra horizontal
-    plugins:{legend:{display:false}},
-    scales:{x:{title:{display:true,text:"Minutos"}}}
+  options: {
+    indexAxis: "y",
+    maintainAspectRatio: false,                  // <- clave
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { title: { display: true, text: "Minutos" }, beginAtZero: true },
+      y: { ticks: { autoSkip: false } }          // no saltes etiquetas
+    }
   }
 });
+
 
 /* ----------  NUEVO GRÁFICO 2: doughnut promedio por modo ---------- */
 const modes = {"Auto":{sum:0,n:0},"Moto":{sum:0,n:0},"TPúblico":{sum:0,n:0}};
